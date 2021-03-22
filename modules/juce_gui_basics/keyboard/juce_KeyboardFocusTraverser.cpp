@@ -28,103 +28,281 @@ namespace juce
 
 namespace KeyboardFocusHelpers
 {
-    static int getOrder (const Component* c)
+    struct Forwards  {};
+    struct Backwards {};
+
+    static Component* traverse (ComponentTraverser& traverser, Component* currentComponent, Forwards)
     {
-        auto order = c->getExplicitFocusOrder();
-        return order > 0 ? order : (std::numeric_limits<int>::max() / 2);
+        return traverser.getNextComponent (currentComponent);
     }
 
-    static void findAllFocusableComponents (Component* parent, Array<Component*>& comps)
+    static Component* traverse (ComponentTraverser& traverser, Component* currentComponent, Backwards)
     {
-        if (parent->getNumChildComponents() != 0)
+        return traverser.getPreviousComponent (currentComponent);
+    }
+
+    template <typename Direction>
+    static Component* findComponent (ComponentTraverser& traverser,
+                                     Component* currentComponent,
+                                     Component* parentComponent,
+                                     Direction dir)
+    {
+        if (auto* comp = traverse (traverser, currentComponent, dir))
         {
-            Array<Component*> localComps;
+            if (comp->getWantsKeyboardFocus() && parentComponent->isParentOf (comp))
+                return comp;
 
-            for (auto* c : parent->getChildren())
-                if (c->isVisible() && c->isEnabled())
-                    localComps.add (c);
-
-            // This will sort so that they are ordered in terms of left-to-right
-            // and then top-to-bottom.
-            std::stable_sort (localComps.begin(), localComps.end(),
-                              [] (const Component* a, const Component* b)
-            {
-                auto explicitOrder1 = getOrder (a);
-                auto explicitOrder2 = getOrder (b);
-
-                if (explicitOrder1 != explicitOrder2)
-                    return explicitOrder1 < explicitOrder2;
-
-                if (a->getY() != b->getY())
-                    return a->getY() < b->getY();
-
-                return a->getX() < b->getX();
-            });
-
-            for (auto* c : localComps)
-            {
-                if (c->getWantsKeyboardFocus())
-                    comps.add (c);
-
-                if (! c->isFocusContainer())
-                    findAllFocusableComponents (c, comps);
-            }
+            return findComponent (traverser, comp, parentComponent, dir);
         }
+
+        return nullptr;
     }
 
-    static Component* findFocusContainer (Component* c)
+    template <typename Direction>
+    static Component* getComponent (Component* current, Direction dir)
     {
-        c = c->getParentComponent();
+        jassert (current != nullptr);
 
-        if (c != nullptr)
-            while (c->getParentComponent() != nullptr && ! c->isFocusContainer())
-                c = c->getParentComponent();
-
-        return c;
-    }
-
-    static Component* getIncrementedComponent (Component* current, int delta)
-    {
-        if (auto* focusContainer = findFocusContainer (current))
-        {
-            Array<Component*> comps;
-            KeyboardFocusHelpers::findAllFocusableComponents (focusContainer, comps);
-
-            if (! comps.isEmpty())
-            {
-                auto index = comps.indexOf (current);
-                return comps [(index + comps.size() + delta) % comps.size()];
-            }
-        }
+        if (auto focusTraverser = current->createFocusTraverser())
+            return findComponent (*focusTraverser, current, current->findFocusContainer(), dir);
 
         return nullptr;
     }
 }
 
 //==============================================================================
-KeyboardFocusTraverser::KeyboardFocusTraverser() {}
-KeyboardFocusTraverser::~KeyboardFocusTraverser() {}
-
 Component* KeyboardFocusTraverser::getNextComponent (Component* current)
 {
-    jassert (current != nullptr);
-    return KeyboardFocusHelpers::getIncrementedComponent (current, 1);
+    return KeyboardFocusHelpers::getComponent (current, KeyboardFocusHelpers::Forwards{});
 }
 
 Component* KeyboardFocusTraverser::getPreviousComponent (Component* current)
 {
-    jassert (current != nullptr);
-    return KeyboardFocusHelpers::getIncrementedComponent (current, -1);
+    return KeyboardFocusHelpers::getComponent (current, KeyboardFocusHelpers::Backwards{});
 }
 
 Component* KeyboardFocusTraverser::getDefaultComponent (Component* parentComponent)
 {
-    Array<Component*> comps;
+    jassert (parentComponent != nullptr);
 
-    if (parentComponent != nullptr)
-        KeyboardFocusHelpers::findAllFocusableComponents (parentComponent, comps);
+    if (auto focusTraverser = parentComponent->createFocusTraverser())
+    {
+        if (auto* defaultComponent = focusTraverser->getDefaultComponent (parentComponent))
+        {
+            if (defaultComponent->getWantsKeyboardFocus())
+                return defaultComponent;
 
-    return comps.getFirst();
+            return KeyboardFocusHelpers::findComponent (*focusTraverser,
+                                                        defaultComponent,
+                                                        parentComponent,
+                                                        KeyboardFocusHelpers::Forwards{});
+        }
+    }
+
+    return nullptr;
 }
+
+std::vector<Component*> KeyboardFocusTraverser::getAllComponents (Component* parentComponent)
+{
+    std::vector<Component*> components;
+
+    if (auto focusTraverser = parentComponent->createFocusTraverser())
+    {
+        auto* current = getDefaultComponent (parentComponent);
+
+        while (current != nullptr)
+        {
+            components.push_back (current);
+
+            current = KeyboardFocusHelpers::findComponent (*focusTraverser,
+                                                           current,
+                                                           parentComponent,
+                                                           KeyboardFocusHelpers::Forwards{});
+        }
+    }
+
+    return components;
+}
+
+
+//==============================================================================
+//==============================================================================
+#if JUCE_UNIT_TESTS
+
+struct KeyboardFocusTraverserTests  : public UnitTest
+{
+    KeyboardFocusTraverserTests()
+        : UnitTest ("KeyboardFocusTraverser", UnitTestCategories::gui)
+    {}
+
+    void runTest() override
+    {
+        ScopedJuceInitialiser_GUI libraryInitialiser;
+
+        beginTest ("No child wants keyboard focus");
+        {
+            TestComponent parent;
+
+            expect (traverser.getDefaultComponent (&parent) == nullptr);
+            expect (traverser.getAllComponents (&parent).empty());
+        }
+
+        beginTest ("Single child wants keyboard focus");
+        {
+            TestComponent parent;
+
+            parent.children[5].setWantsKeyboardFocus (true);
+
+            auto* defaultComponent = traverser.getDefaultComponent (&parent);
+
+            expect (defaultComponent == &parent.children[5]);
+            expect (defaultComponent->getWantsKeyboardFocus());
+
+            expect (traverser.getNextComponent (defaultComponent) == nullptr);
+            expect (traverser.getPreviousComponent (defaultComponent) == nullptr);
+            expect (traverser.getAllComponents (&parent).size() == 1);
+        }
+
+        beginTest ("Multiple children want keyboard focus");
+        {
+            TestComponent parent;
+
+            Component* focusChildren[]
+            {
+                &parent.children[1],
+                &parent.children[9],
+                &parent.children[3],
+                &parent.children[5],
+                &parent.children[8],
+                &parent.children[0]
+            };
+
+            for (auto* focusChild : focusChildren)
+                focusChild->setWantsKeyboardFocus (true);
+
+            auto allComponents = traverser.getAllComponents (&parent);
+
+            for (auto* focusChild : focusChildren)
+                expect (std::find (allComponents.cbegin(), allComponents.cend(), focusChild) != allComponents.cend());
+
+            auto* componentToTest = traverser.getDefaultComponent (&parent);
+
+            for (;;)
+            {
+                expect (componentToTest->getWantsKeyboardFocus());
+                expect (std::find (std::begin (focusChildren), std::end (focusChildren), componentToTest) != std::end (focusChildren));
+
+                componentToTest = traverser.getNextComponent (componentToTest);
+
+                if (componentToTest == nullptr)
+                    break;
+            }
+
+            int focusOrder = 1;
+            for (auto* focusChild : focusChildren)
+                focusChild->setExplicitFocusOrder (focusOrder++);
+
+            componentToTest = traverser.getDefaultComponent (&parent);
+
+            for (auto* focusChild : focusChildren)
+            {
+                expect (componentToTest == focusChild);
+                expect (componentToTest->getWantsKeyboardFocus());
+
+                componentToTest = traverser.getNextComponent (componentToTest);
+            }
+        }
+
+        beginTest ("Single nested child wants keyboard focus");
+        {
+            TestComponent parent;
+            Component grandparent;
+
+            grandparent.addAndMakeVisible (parent);
+
+            auto& focusChild = parent.children[5];
+
+            focusChild.setWantsKeyboardFocus (true);
+
+            expect (traverser.getDefaultComponent (&grandparent) == &focusChild);
+            expect (traverser.getDefaultComponent (&parent) == &focusChild);
+            expect (traverser.getNextComponent (&focusChild) == nullptr);
+            expect (traverser.getPreviousComponent (&focusChild) == nullptr);
+            expect (traverser.getAllComponents (&parent).size() == 1);
+        }
+
+        beginTest ("Multiple nested children want keyboard focus");
+        {
+            TestComponent parent;
+            Component grandparent;
+
+            grandparent.addAndMakeVisible (parent);
+
+            Component* focusChildren[]
+            {
+                &parent.children[1],
+                &parent.children[4],
+                &parent.children[5]
+            };
+
+            for (auto* focusChild : focusChildren)
+                focusChild->setWantsKeyboardFocus (true);
+
+            auto allComponents = traverser.getAllComponents (&parent);
+
+            expect (std::equal (allComponents.cbegin(), allComponents.cend(), focusChildren,
+                                [] (const Component* c1, const Component* c2) { return c1 == c2; }));
+
+            const auto front = *focusChildren;
+            const auto back  = *std::prev (std::end (focusChildren));
+
+            expect (traverser.getDefaultComponent (&grandparent) == front);
+            expect (traverser.getDefaultComponent (&parent) == front);
+            expect (traverser.getNextComponent (front) == *std::next (std::begin (focusChildren)));
+            expect (traverser.getPreviousComponent (back) == *std::prev (std::end (focusChildren), 2));
+
+            std::array<Component, 3> otherParents;
+
+            for (auto& p : otherParents)
+            {
+                grandparent.addAndMakeVisible (p);
+                p.setWantsKeyboardFocus (true);
+            }
+
+            expect (traverser.getDefaultComponent (&grandparent) == front);
+            expect (traverser.getDefaultComponent (&parent) == front);
+            expect (traverser.getNextComponent (back) == &otherParents.front());
+            expect (traverser.getNextComponent (&otherParents.back()) == nullptr);
+            expect (traverser.getAllComponents (&grandparent).size() == numElementsInArray (focusChildren) + otherParents.size());
+            expect (traverser.getAllComponents (&parent).size() == numElementsInArray (focusChildren));
+
+            for (auto* focusChild : focusChildren)
+                focusChild->setWantsKeyboardFocus (false);
+
+            expect (traverser.getDefaultComponent (&grandparent) == &otherParents.front());
+            expect (traverser.getDefaultComponent (&parent) == nullptr);
+            expect (traverser.getAllComponents (&grandparent).size() == otherParents.size());
+            expect (traverser.getAllComponents (&parent).empty());
+        }
+    }
+
+private:
+    struct TestComponent  : public Component
+    {
+        TestComponent()
+        {
+            for (auto& child : children)
+                addAndMakeVisible (child);
+        }
+
+        std::array<Component, 10> children;
+    };
+
+    KeyboardFocusTraverser traverser;
+};
+
+static KeyboardFocusTraverserTests keyboardFocusTraverserTests;
+
+#endif
 
 } // namespace juce

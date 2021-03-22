@@ -279,6 +279,11 @@ void TopLevelWindow::addToDesktop (int windowStyleFlags, void* nativeWindowToAtt
         sendLookAndFeelChange();
 }
 
+std::unique_ptr<AccessibilityHandler> TopLevelWindow::createAccessibilityHandler()
+{
+    return std::make_unique<AccessibilityHandler> (*this, AccessibilityRole::window);
+}
+
 //==============================================================================
 void TopLevelWindow::centreAroundComponent (Component* c, const int width, const int height)
 {

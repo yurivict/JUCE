@@ -114,4 +114,10 @@ void ProgressBar::timerCallback()
     }
 }
 
+//==============================================================================
+std::unique_ptr<AccessibilityHandler> ProgressBar::createAccessibilityHandler()
+{
+    return std::make_unique<AccessibilityHandler> (*this, AccessibilityRole::progressBar);
+}
+
 } // namespace juce

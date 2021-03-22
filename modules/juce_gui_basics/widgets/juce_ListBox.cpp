@@ -26,6 +26,28 @@
 namespace juce
 {
 
+template<typename RowHandlerType, typename RowComponent>
+static AccessibilityActions getListRowAccessibilityActions (RowHandlerType& handler, RowComponent& rowComponent)
+{
+    auto onSelection = [&rowComponent] (bool rowIsSelected)
+    {
+        auto& listBox = rowComponent.owner;
+        auto& row = rowComponent.row;
+
+        if (rowIsSelected)
+            listBox.selectRow (row);
+        else
+            listBox.deselectRow (row);
+    };
+
+    return AccessibilityActions().addAction (AccessibilityActionType::focus,
+                                             [&rowComponent] { rowComponent.owner.scrollToEnsureRowIsOnscreen (rowComponent.row); })
+                                 .addAction (AccessibilityActionType::toggle,
+                                             [&handler, onSelection] { onSelection (! handler.getCurrentState().isSelected()); })
+                                 .addAction (AccessibilityActionType::press,
+                                             [onSelection] { onSelection (true); });
+}
+
 class ListBox::RowComponent  : public Component,
                                public TooltipClient
 {
@@ -35,16 +57,29 @@ public:
     void paint (Graphics& g) override
     {
         if (auto* m = owner.getModel())
-            m->paintListBoxItem (row, g, getWidth(), getHeight(), selected);
+            m->paintListBoxItem (row, g, getWidth(), getHeight(), isSelected);
     }
 
     void update (const int newRow, const bool nowSelected)
     {
-        if (row != newRow || selected != nowSelected)
+        const auto rowHasChanged = (row != newRow);
+        const auto selectionHasChanged = (isSelected != nowSelected);
+
+        if (rowHasChanged || selectionHasChanged)
         {
             repaint();
-            row = newRow;
-            selected = nowSelected;
+
+            if (rowHasChanged)
+                row = newRow;
+
+            if (selectionHasChanged)
+            {
+                isSelected = nowSelected;
+
+                if (isSelected)
+                    if (auto* handler = getAccessibilityHandler())
+                        handler->grabFocus();
+            }
         }
 
         if (auto* m = owner.getModel())
@@ -57,6 +92,7 @@ public:
             {
                 addAndMakeVisible (customComponent.get());
                 customComponent->setBounds (getLocalBounds());
+                invalidateAccessibilityHandler();
             }
         }
     }
@@ -85,7 +121,7 @@ public:
 
         if (isEnabled())
         {
-            if (owner.selectOnMouseDown && ! (selected || isInDragToScrollViewport()))
+            if (owner.selectOnMouseDown && ! (isSelected || isInDragToScrollViewport()))
                 performSelection (e, false);
             else
                 selectRowOnMouseUp = true;
@@ -150,10 +186,62 @@ public:
         return {};
     }
 
+    //==============================================================================
+    class RowAccessibilityHandler  : public AccessibilityHandler
+    {
+    public:
+        explicit RowAccessibilityHandler (RowComponent& rowComponentToWrap)
+            : AccessibilityHandler (rowComponentToWrap,
+                                    AccessibilityRole::listItem,
+                                    getListRowAccessibilityActions (*this, rowComponentToWrap)),
+              rowComponent (rowComponentToWrap)
+        {
+        }
+
+        String getTitle() const override
+        {
+            if (auto* m = rowComponent.owner.getModel())
+                return m->getNameForRow (rowComponent.row);
+
+            return {};
+        }
+
+        AccessibleState getCurrentState() const override
+        {
+            if (auto* m = rowComponent.owner.getModel())
+                if (rowComponent.row >= m->getNumRows())
+                    return AccessibleState().withIgnored();
+
+            auto state = AccessibilityHandler::getCurrentState().withAccessibleOffscreen();
+
+            if (rowComponent.owner.multipleSelection)
+                state = state.withMultiSelectable();
+            else
+                state = state.withSelectable();
+
+            if (rowComponent.isSelected)
+                state = state.withSelected();
+
+            return state;
+        }
+
+    private:
+        RowComponent& rowComponent;
+    };
+
+    std::unique_ptr<AccessibilityHandler> createAccessibilityHandler() override
+    {
+        if (customComponent != nullptr && customComponent->getAccessibilityHandler() != nullptr)
+            return nullptr;
+
+        return std::make_unique<RowAccessibilityHandler> (*this);
+    }
+
+    //==============================================================================
     ListBox& owner;
     std::unique_ptr<Component> customComponent;
     int row = -1;
-    bool selected = false, isDragging = false, isDraggingToScroll = false, selectRowOnMouseUp = false;
+    bool isSelected = false, isDragging = false, isDraggingToScroll = false, selectRowOnMouseUp = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RowComponent)
 };
@@ -166,10 +254,13 @@ public:
     ListViewport (ListBox& lb)  : owner (lb)
     {
         setWantsKeyboardFocus (false);
+        setAccessible (false);
 
-        auto content = new Component();
-        setViewedComponent (content);
+        auto content = std::make_unique<Component>();
         content->setWantsKeyboardFocus (false);
+        content->setAccessible (false);
+
+        setViewedComponent (content.release());
     }
 
     RowComponent* getComponentForRow (const int row) const noexcept
@@ -233,13 +324,12 @@ public:
             auto y = getViewPositionY();
             auto w = content.getWidth();
 
-            const int numNeeded = 2 + getMaximumVisibleHeight() / rowH;
+            const int numNeeded = 4 + getMaximumVisibleHeight() / rowH;
             rows.removeRange (numNeeded, rows.size());
 
             while (numNeeded > rows.size())
             {
-                auto newRow = new RowComponent (owner);
-                rows.add (newRow);
+                auto* newRow = rows.add (new RowComponent (owner));
                 content.addAndMakeVisible (newRow);
             }
 
@@ -247,9 +337,11 @@ public:
             firstWholeIndex = (y + rowH - 1) / rowH;
             lastWholeIndex = (y + getMaximumVisibleHeight() - 1) / rowH;
 
+            auto startIndex = jmax (0, firstIndex - 1);
+
             for (int i = 0; i < numNeeded; ++i)
             {
-                const int row = i + firstIndex;
+                const int row = i + startIndex;
 
                 if (auto* rowComp = getComponentForRow (row))
                 {
@@ -379,8 +471,9 @@ ListBox::ListBox (const String& name, ListBoxModel* const m)
     viewport.reset (new ListViewport (*this));
     addAndMakeVisible (viewport.get());
 
-    ListBox::setWantsKeyboardFocus (true);
-    ListBox::colourChanged();
+    setWantsKeyboardFocus (true);
+    setFocusContainer (true);
+    colourChanged();
 }
 
 ListBox::~ListBox()
@@ -938,6 +1031,11 @@ void ListBox::startDragAndDrop (const MouseEvent& e, const SparseSet<int>& rowsT
     }
 }
 
+std::unique_ptr<AccessibilityHandler> ListBox::createAccessibilityHandler()
+{
+    return std::make_unique<AccessibilityHandler> (*this, AccessibilityRole::list);
+}
+
 //==============================================================================
 Component* ListBoxModel::refreshComponentForRow (int, bool, Component* existingComponentToUpdate)
 {
@@ -946,6 +1044,7 @@ Component* ListBoxModel::refreshComponentForRow (int, bool, Component* existingC
     return nullptr;
 }
 
+String ListBoxModel::getNameForRow (int rowNumber)                      { return "Row " + String (rowNumber); }
 void ListBoxModel::listBoxItemClicked (int, const MouseEvent&) {}
 void ListBoxModel::listBoxItemDoubleClicked (int, const MouseEvent&) {}
 void ListBoxModel::backgroundClicked (const MouseEvent&) {}

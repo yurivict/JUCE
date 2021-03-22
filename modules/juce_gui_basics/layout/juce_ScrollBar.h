@@ -409,6 +409,8 @@ public:
     void parentHierarchyChanged() override;
     /** @internal */
     void setVisible (bool) override;
+    /** @internal */
+    std::unique_ptr<AccessibilityHandler> createAccessibilityHandler() override;
 
 private:
     //==============================================================================

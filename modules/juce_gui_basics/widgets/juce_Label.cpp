@@ -107,6 +107,8 @@ void Label::setEditable (bool editOnSingleClick,
 
     setWantsKeyboardFocus (editOnSingleClick || editOnDoubleClick);
     setFocusContainer (editOnSingleClick || editOnDoubleClick);
+
+    invalidateAccessibilityHandler();
 }
 
 void Label::setJustificationType (Justification newJustification)
@@ -221,6 +223,7 @@ void Label::showEditor()
     if (editor == nullptr)
     {
         editor.reset (createEditorComponent());
+        editor->setSize (1, 1);
         addAndMakeVisible (editor.get());
         editor->setText (getText(), false);
         editor->setKeyboardType (keyboardType);
@@ -351,7 +354,9 @@ void Label::mouseDoubleClick (const MouseEvent& e)
     if (editDoubleClick
          && isEnabled()
          && ! e.mods.isPopupMenu())
+    {
         showEditor();
+    }
 }
 
 void Label::resized()
@@ -364,8 +369,11 @@ void Label::focusGained (FocusChangeType cause)
 {
     if (editSingleClick
          && isEnabled()
-         && cause == focusChangedByTabKey)
+         && (cause == focusChangedByTabKey
+             || (cause == focusChangedDirectly && ! isCurrentlyModal())))
+    {
         showEditor();
+    }
 }
 
 void Label::enablementChanged()
@@ -393,21 +401,45 @@ void Label::setMinimumHorizontalScale (const float newScale)
 class LabelKeyboardFocusTraverser   : public KeyboardFocusTraverser
 {
 public:
-    LabelKeyboardFocusTraverser() {}
+    explicit LabelKeyboardFocusTraverser (Label& l)  : owner (l)  {}
 
-    Component* getNextComponent (Component* c) override     { return KeyboardFocusTraverser::getNextComponent (getComp (c)); }
-    Component* getPreviousComponent (Component* c) override { return KeyboardFocusTraverser::getPreviousComponent (getComp (c)); }
-
-    static Component* getComp (Component* current)
+    Component* getDefaultComponent (Component* parent) override
     {
-        return dynamic_cast<TextEditor*> (current) != nullptr
-                 ? current->getParentComponent() : current;
+        auto getContainer = [&]
+        {
+            if (owner.getCurrentTextEditor() != nullptr && parent == &owner)
+                return owner.findFocusContainer();
+
+            return parent;
+        };
+
+        if (auto* container = getContainer())
+            KeyboardFocusTraverser::getDefaultComponent (container);
+
+        return nullptr;
     }
+
+    Component* getNextComponent     (Component* c) override  { return KeyboardFocusTraverser::getNextComponent     (getComp (c)); }
+    Component* getPreviousComponent (Component* c) override  { return KeyboardFocusTraverser::getPreviousComponent (getComp (c)); }
+
+private:
+    Component* getComp (Component* current) const
+    {
+        if (auto* ed = owner.getCurrentTextEditor())
+            if (current == ed)
+                return current->getParentComponent();
+
+        return current;
+    }
+
+    Label& owner;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LabelKeyboardFocusTraverser)
 };
 
-KeyboardFocusTraverser* Label::createFocusTraverser()
+std::unique_ptr<ComponentTraverser> Label::createKeyboardFocusTraverser()
 {
-    return new LabelKeyboardFocusTraverser();
+    return std::make_unique<LabelKeyboardFocusTraverser> (*this);
 }
 
 //==============================================================================
@@ -478,6 +510,11 @@ void Label::textEditorEscapeKeyPressed (TextEditor& ed)
 void Label::textEditorFocusLost (TextEditor& ed)
 {
     textEditorTextChanged (ed);
+}
+
+std::unique_ptr<AccessibilityHandler> Label::createAccessibilityHandler()
+{
+    return std::make_unique<LabelAccessibilityHandler> (*this);
 }
 
 } // namespace juce

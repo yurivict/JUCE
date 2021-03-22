@@ -64,8 +64,7 @@ AlertWindow::~AlertWindow()
 
     // Give away focus before removing the editors, so that any TextEditor
     // with focus has a chance to dismiss native keyboard if shown.
-    if (hasKeyboardFocus (true))
-        Component::unfocusAllComponents();
+    giveAwayKeyboardFocus();
 
     removeAllChildren();
 }
@@ -703,5 +702,11 @@ bool AlertWindow::showNativeDialogBox (const String& title,
     return true;
 }
 #endif
+
+//==============================================================================
+std::unique_ptr<AccessibilityHandler> AlertWindow::createAccessibilityHandler()
+{
+    return std::make_unique<AccessibilityHandler> (*this, AccessibilityRole::dialogWindow);
+}
 
 } // namespace juce

@@ -280,10 +280,10 @@ public:
         : owner (kec), commandID (command)
     {}
 
-    String getUniqueName() const override         { return String ((int) commandID) + "_id"; }
-    bool mightContainSubItems() override          { return false; }
-    int getItemHeight() const override            { return 20; }
-    Component* createItemComponent() override     { return new ItemComponent (owner, commandID); }
+    String getUniqueName() const override                      { return String ((int) commandID) + "_id"; }
+    bool mightContainSubItems() override                       { return false; }
+    int getItemHeight() const override                         { return 20; }
+    std::unique_ptr<Component> createItemComponent() override  { return std::make_unique<ItemComponent> (owner, commandID); }
 
 private:
     KeyMappingEditorComponent& owner;

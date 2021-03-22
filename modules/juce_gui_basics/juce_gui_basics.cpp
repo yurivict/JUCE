@@ -66,6 +66,7 @@
  #include <windowsx.h>
  #include <vfw.h>
  #include <commdlg.h>
+ #include <UIAutomation.h>
 
  #if JUCE_WEB_BROWSER
   #include <exdisp.h>
@@ -103,8 +104,10 @@ namespace juce
     extern bool juce_areThereAnyAlwaysOnTopWindows();
 }
 
+#include "accessibility/juce_AccessibilityHandler.cpp"
 #include "components/juce_Component.cpp"
 #include "components/juce_ComponentListener.cpp"
+#include "components/juce_FocusTraverser.cpp"
 #include "mouse/juce_MouseInputSource.cpp"
 #include "desktop/juce_Displays.cpp"
 #include "desktop/juce_Desktop.cpp"
@@ -240,6 +243,7 @@ namespace juce
   #endif
 
  #else
+  #include "native/accessibility/juce_mac_Accessibility.mm"
   #include "native/juce_mac_NSViewComponentPeer.mm"
   #include "native/juce_mac_Windowing.mm"
   #include "native/juce_mac_MainMenu.mm"
@@ -249,6 +253,12 @@ namespace juce
  #include "native/juce_mac_MouseCursor.mm"
 
 #elif JUCE_WINDOWS
+ #include "native/accessibility/juce_win32_WindowsUIAWrapper.h"
+ #include "native/accessibility/juce_win32_AccessibilityElement.h"
+ #include "native/accessibility/juce_win32_UIAHelpers.h"
+ #include "native/accessibility/juce_win32_UIAProviders.h"
+ #include "native/accessibility/juce_win32_AccessibilityElement.cpp"
+ #include "native/accessibility/juce_win32_Accessibility.cpp"
  #include "native/juce_win32_Windowing.cpp"
  #include "native/juce_win32_DragAndDrop.cpp"
  #include "native/juce_win32_FileChooser.cpp"

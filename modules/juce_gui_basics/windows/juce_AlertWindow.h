@@ -460,6 +460,8 @@ protected:
     void userTriedToCloseWindow() override;
     /** @internal */
     int getDesktopWindowStyleFlags() const override;
+    /** @internal */
+    std::unique_ptr<AccessibilityHandler> createAccessibilityHandler() override;
 
 private:
     //==============================================================================

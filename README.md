@@ -1,3 +1,17 @@
+## Accessibility Preview Branch
+
+This branch contains pre-release support for native accessibility clients on
+macOS (VoiceOver) and Windows (Narrator). These changes will be a part of the
+JUCE 6.1 release and this beta branch is designed to allow users who want to
+test the feature before its release to provide feedback and suggestions to the
+team to help shape its development. Feedback can be provided via the JUCE Forum
+(https://forum.juce.com/).
+
+A short "Getting Started" guide can be found in the
+[docs/Accessibility.md](/docs/Accessibility.md) file which gives an overview of
+the relevant parts of the API for adding accessibility support to your JUCE
+applications and plug-ins.
+
 ![alt text](https://assets.juce.com/juce/JUCE_banner.png "JUCE")
 
 JUCE is an open-source cross-platform C++ application framework used for rapidly

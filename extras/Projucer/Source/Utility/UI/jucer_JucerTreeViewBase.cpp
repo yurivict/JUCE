@@ -123,9 +123,9 @@ void JucerTreeViewBase::paintContent (Graphics& g, Rectangle<int> area)
     g.drawFittedText (getDisplayName(), area, Justification::centredLeft, 1, 1.0f);
 }
 
-Component* JucerTreeViewBase::createItemComponent()
+std::unique_ptr<Component> JucerTreeViewBase::createItemComponent()
 {
-    return new TreeItemComponent (*this);
+    return std::make_unique<TreeItemComponent> (*this);
 }
 
 //==============================================================================

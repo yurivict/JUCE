@@ -205,6 +205,8 @@ void Button::setClickingTogglesState (bool shouldToggle) noexcept
     // it is that this button represents, and the button will update its state to reflect this
     // in the applicationCommandListChanged() method.
     jassert (commandManagerToUse == nullptr || ! clickTogglesState);
+
+    invalidateAccessibilityHandler();
 }
 
 bool Button::getClickingTogglesState() const noexcept
@@ -690,6 +692,12 @@ void Button::repeatTimerCallback()
     {
         callbackHelper->stopTimer();
     }
+}
+
+//==============================================================================
+std::unique_ptr<AccessibilityHandler> Button::createAccessibilityHandler()
+{
+    return std::make_unique<ButtonAccessibilityHandler> (*this);
 }
 
 } // namespace juce

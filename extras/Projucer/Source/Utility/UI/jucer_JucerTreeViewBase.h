@@ -44,7 +44,7 @@ public:
     void itemClicked (const MouseEvent& e) override;
     void itemSelectionChanged (bool isNowSelected) override;
     void itemDoubleClicked (const MouseEvent&) override;
-    Component* createItemComponent() override;
+    std::unique_ptr<Component> createItemComponent() override;
     String getTooltip() override    { return {}; }
 
     void cancelDelayedSelectionTimer();
@@ -205,6 +205,7 @@ class TreeItemComponent   : public Component
 public:
     TreeItemComponent (JucerTreeViewBase& i)  : item (i)
     {
+        setAccessible (false);
         setInterceptsMouseClicks (false, true);
         item.textX = iconWidth;
     }
